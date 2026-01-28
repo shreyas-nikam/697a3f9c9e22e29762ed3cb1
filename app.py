@@ -16,6 +16,184 @@ st.sidebar.divider()
 st.title("QuLab: Second Line - MRM Lead's Formal Model Tiering & Control Mandate")
 st.divider()
 
+
+def render_official_tiering_result(data):
+    """
+    Renders the Official MRM Tiering Result using native Streamlit components.
+    """
+
+    # --- Header & Audit Trail ---
+    st.title(f"Official Tiering Result: {data.get('model_name', 'Unknown')}")
+
+    # Audit metadata displayed prominently at the top
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        st.caption(f"**Model ID:** {data.get('model_id')}")
+    with c2:
+        st.caption(f"**Tiered By:** {data.get('tiered_by')}")
+    with c3:
+        st.caption(f"**Date:** {data.get('date_tiered')}")
+
+    st.markdown("---")
+
+    # --- Key Results (Hero Section) ---
+    st.subheader("Final Determination")
+
+    m1, m2, m3 = st.columns(3)
+
+    with m1:
+        st.metric(
+            label="Official Risk Tier",
+            value=data.get("official_risk_tier")
+        )
+    with m2:
+        st.metric(
+            label="Total Risk Score",
+            value=data.get("official_risk_score")
+        )
+    with m3:
+        st.metric(
+            label="Logic Version Applied",
+            value=data.get("tiering_logic_version")
+        )
+
+    # --- Rationale (Plain English) ---
+    # Using a colored container (success/info) to make the decision rationale stand out
+    st.subheader("MRM Lead Rationale")
+    st.info(data.get("mrm_lead_rationale_plain_english"), icon=None)
+
+    # --- Detailed Score Breakdown ---
+    st.subheader("Scoring Breakdown")
+
+    breakdown_data = data.get("score_breakdown", {})
+    if breakdown_data:
+        breakdown_items = []
+        for category, details in breakdown_data.items():
+            # Check if there is a note/warning for this line item
+            note = details.get("note", "")
+
+            breakdown_items.append({
+                "Category": category.replace("_", " ").title(),
+                "Value Matched": details.get("value_matched"),
+                "Points": details.get("points"),
+                "Notes / Warnings": note
+            })
+
+        df_breakdown = pd.DataFrame(breakdown_items)
+
+        # We highlight the 'Notes' column if it contains data
+        st.dataframe(
+            df_breakdown,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Points": st.column_config.NumberColumn(format="%d"),
+                "Notes / Warnings": st.column_config.TextColumn(width="large")
+            }
+        )
+
+    # --- Logic Reference (Collapsible) ---
+    with st.expander("View Tiering Thresholds Used"):
+        st.markdown(f"**Logic Version:** {data.get('tiering_logic_version')}")
+
+        thresholds = data.get("tier_thresholds_used", {})
+        if thresholds:
+            t_data = []
+            for tier, limits in thresholds.items():
+                # Handle 'Infinity' string or float
+                max_score = limits.get("max_score")
+                if max_score == "Infinity" or max_score == float('inf'):
+                    range_str = f">= {limits.get('min_score')}"
+                else:
+                    range_str = f"{limits.get('min_score')} - {max_score}"
+
+                t_data.append({
+                    "Tier": tier,
+                    "Score Range": range_str
+                })
+
+            st.dataframe(pd.DataFrame(t_data), hide_index=True,
+                         use_container_width=True)
+
+
+def render_controls_checklist(data):
+    """
+    Renders the Model Risk Controls Checklist using native Streamlit components.
+    """
+
+    # --- Header & Tier Status ---
+    st.title("Controls Checklist & Requirements")
+
+    # We display the Tier prominently as it dictates the controls
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        st.caption(f"**Model ID:** {data.get('model_id')}")
+    with c2:
+        st.metric(label="Assigned Tier", value=data.get("assigned_tier"))
+
+    st.markdown("---")
+
+    # --- Executive Summary ---
+    # Good for a quick reading of the expectations
+    if data.get("control_expectations_summary"):
+        st.subheader("Expectations Summary")
+        st.info(data.get("control_expectations_summary"), icon=None)
+
+    # --- Detailed Controls Table ---
+    st.subheader("Required Controls")
+
+    controls = data.get("required_controls", [])
+
+    if controls:
+        # Create a DataFrame for a clean, filterable checklist view
+        df = pd.DataFrame(controls)
+
+        # Reordering and renaming columns for display purposes
+        # We handle missing keys gracefully using .get inside the list logic if needed,
+        # but pandas handles missing dict keys by creating NaN.
+
+        # Map JSON keys to Friendly Names
+        column_mapping = {
+            "control_id": "ID",
+            "control_name": "Control Name",
+            "frequency": "Frequency",
+            "owner_role": "Owner / Accountability",
+            "evidence_expected": "Evidence Required",
+            "description": "Description"
+        }
+
+        # Rename columns that exist in the dataframe
+        df = df.rename(columns=column_mapping)
+
+        # Select only the columns we want to display (in order)
+        display_cols = [
+            "ID",
+            "Control Name",
+            "Frequency",
+            "Owner / Accountability",
+            "Evidence Required",
+            "Description"
+        ]
+
+        # Ensure only columns that actually exist in the data are selected
+        final_cols = [c for c in display_cols if c in df.columns]
+        df_final = df[final_cols]
+
+        st.dataframe(
+            df_final,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ID": st.column_config.TextColumn(width="small"),
+                "Control Name": st.column_config.TextColumn(width="medium"),
+                "Description": st.column_config.TextColumn(width="large"),
+                "Evidence Required": st.column_config.TextColumn(width="medium"),
+            }
+        )
+    else:
+        st.warning("No specific controls found for this model tier.", icon=None)
+
+
 # --- Session State Initialization ---
 if 'current_page' not in st.session_state:
     st.session_state.current_page = "1) Ingest Model Submission"
@@ -390,9 +568,10 @@ if st.session_state.current_page == "4) Export Reports":
         st.session_state.download_json_tiering_content = json.dumps(
             tiering_results_for_download, indent=4)
 
-        st.subheader(f"1. `risk_tiering.json`")
+        st.subheader(f"1. Risk Tiering Result")
         # Display nicely
-        st.json(json.loads(st.session_state.download_json_tiering_content))
+        render_official_tiering_result(json.loads(
+            st.session_state.download_json_tiering_content))
         st.download_button(
             label="Download Risk Tiering JSON",
             data=st.session_state.download_json_tiering_content,
@@ -406,9 +585,10 @@ if st.session_state.current_page == "4) Export Reports":
         st.session_state.download_json_controls_content = json.dumps(
             controls_checklist_for_download, indent=4)
 
-        st.subheader(f"2. `required_controls_checklist.json`")
+        st.subheader(f"2. Required Controls Checklist")
         # Display nicely
-        st.json(json.loads(st.session_state.download_json_controls_content))
+        render_controls_checklist(json.loads(
+            st.session_state.download_json_controls_content))
         st.download_button(
             label="Download Required Controls JSON",
             data=st.session_state.download_json_controls_content,
@@ -481,7 +661,7 @@ This report serves as the formal documentation of the model's risk tier and the 
 """
         st.session_state.download_md_summary_content = md_summary_content
 
-        st.subheader(f"3. `executive_summary.md`")
+        st.subheader(f"3. Executive Summary Report")
         with st.container(border=True):
             st.markdown(st.session_state.download_md_summary_content)
         st.download_button(
