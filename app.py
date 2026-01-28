@@ -84,7 +84,7 @@ def render_official_tiering_result(data):
         # We highlight the 'Notes' column if it contains data
         st.dataframe(
             df_breakdown,
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
             column_config={
                 "Points": st.column_config.NumberColumn(format="%d"),
@@ -113,7 +113,7 @@ def render_official_tiering_result(data):
                 })
 
             st.dataframe(pd.DataFrame(t_data), hide_index=True,
-                         use_container_width=True)
+                         width='stretch')
 
 
 def render_controls_checklist(data):
@@ -181,7 +181,7 @@ def render_controls_checklist(data):
 
         st.dataframe(
             df_final,
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
             column_config={
                 "ID": st.column_config.TextColumn(width="small"),
