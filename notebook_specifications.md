@@ -1,677 +1,536 @@
 
-# Jupyter Notebook Specification: Model Risk Tiering & Control Mandate (SR 11-7 Aligned)
+# Model Risk Tiering & Control Mandate: An SR 11-7 Guided Workflow for MRM Leads
 
-## Introduction: Operationalizing Model Risk Management at Fictional Bank Inc.
+## 1. Introduction: Operationalizing Model Risk Governance at BankCo
 
-Welcome to this hands-on lab, designed for **Anya Sharma, our Model Risk Management Lead** at **Fictional Bank Inc.** Anya is a seasoned professional responsible for ensuring all AI models adhere to the highest standards of governance and risk management, particularly those outlined in supervisory guidance like SR 11-7.
+### Story + Context + Real-World Relevance
 
-Today, Anya faces a critical task: formally tiering a newly registered "Credit Risk Scoring Model." This model is customer-facing, utilizes regulated data, and makes automated decisions, classifying it as potentially high-risk. Her objective is to apply Fictional Bank Inc.'s standardized, deterministic tiering logic to assign an official Model Risk Tier and then define the minimum control expectations associated with that tier. This process is crucial for allocating appropriate validation resources, ensuring robust documentation, and establishing ongoing monitoring requirements, ultimately safeguarding the bank from potential model failures and regulatory non-compliance.
+As a **Model Risk Management Lead** (our persona) at BankCo, a financial institution heavily reliant on advanced analytics and AI, your role is pivotal in ensuring the sound governance of all models. The regulatory landscape, particularly **SR 11-7: Supervisory Guidance on Model Risk Management**, mandates a robust framework for assessing and mitigating model risk. This involves not just understanding models, but formally tiering them based on their potential impact and assigning corresponding control expectations.
 
-This notebook will guide Anya through the step-by-step workflow:
-1.  **Setting up the MRM Environment**: Loading the bank's formal tiering policies and model inventory.
-2.  **Identifying the Model for Assessment**: Retrieving the "Credit Risk Scoring Model" from the inventory.
-3.  **Applying Deterministic Model Risk Tiering Logic**: Calculating the model's aggregate risk score based on predefined weighted criteria.
-4.  **Assigning the Official Model Risk Tier**: Translating the risk score into a formal Model Risk Tier (e.g., Tier 1, 2, or 3).
-5.  **Defining Minimum Required Control Expectations**: Mapping the assigned tier to a comprehensive list of controls, aligned with SR 11-7 principles.
-6.  **Generating the Official Tiering Decision Report**: Producing audit-defensible reports and a plain-English rationale for stakeholders.
+Today, you've received the initial registration and self-assessment for a critical new model: the "Credit Risk Scoring Model." This model is customer-facing, utilizes sensitive regulated data, and directly influences significant lending decisions. Your task is to apply BankCo's standardized, deterministic tiering logic to formally assess its risk, assign an official Model Risk Tier, and establish the minimum required control expectations. This process ensures that models with higher inherent risk receive appropriate validation rigor, monitoring frequency, and documentation, safeguarding BankCo from potential financial loss, reputational damage, and regulatory penalties.
 
-Through this exercise, Anya will demonstrate how Fictional Bank Inc. operationalizes key MRM principles to manage model risk effectively and transparently.
+This notebook will walk you through the essential steps to perform this critical second-line-of-defense function, illustrating how SR 11-7 principles translate into actionable, data-driven decisions.
+
+### Installation of Required Libraries
+
+Before we begin, let's ensure all necessary libraries are installed.
+
+```python
+!pip install pandas json numpy ipywidgets
+```
+
+### Import Required Dependencies
+
+```python
+import pandas as pd
+import json
+import datetime
+import numpy as np
+from IPython.display import display, Markdown, HTML
+import ipywidgets as widgets
+```
 
 ---
 
-## 1. Environment Setup and MRM Policy Initialization
+## 2. Reviewing the Submitted Model Registration
 
-Anya begins by setting up her environment and loading the organization's formal Model Risk Tiering policies. These policies, meticulously crafted and approved by the Model Risk Committee, ensure a consistent, auditable, and transparent approach to risk assessment across all models, directly addressing SR 11-7 guidance on governance and control. Reproducibility is paramount; given the same model metadata and policy version, the score and tier must always be identical.
+### Story + Context + Real-World Relevance
 
-Anya needs to load several key configuration files:
-*   `factor_weights.json`: Defines the importance (weights) of various model attributes.
-*   `factor_scoring_map.json`: Translates qualitative model attributes (e.g., 'High' criticality) into numerical points.
-*   `tier_thresholds.json`: Establishes the score ranges that define each Model Risk Tier.
-*   `controls_catalog.json`: A comprehensive list of all available control measures.
-*   `tier_controls_map.json`: Links specific Model Risk Tiers to a predefined set of mandatory controls.
-*   `model_inventory.json`: The central repository of all models managed by Fictional Bank Inc.
+As the MRM Lead, your first step is to review the Model Owner's preliminary submission. This initial registration provides critical context about the model's purpose, design, and the owner's self-assessment of its risk. According to SR 11-7 (Section IV: Model Development, Implementation, and Use, page 5), a "clear statement of purpose" and comprehensive documentation are foundational. While the owner's preliminary tiering is valuable, it is the Second Line's independent assessment that determines the official tier and corresponding controls. This initial review helps you contextualize the model before applying BankCo's formal risk tiering logic.
 
-These policy documents are critical for the **deterministic, explainable risk tiering mechanism** mandated by Fictional Bank Inc.'s MRM framework.
+### Code cell (function definition + function execution)
+
+We will define a function to load model registration data from a mocked inventory and then use it to load the "Credit Risk Scoring Model."
 
 ```python
-!pip install pandas # Install pandas for structured data handling if not already present
-import pandas as pd
-import json
-import os
-import datetime
-import uuid
-import hashlib
-
-# Define file paths for configuration and data
-CONFIG_DIR = "config"
-DATA_DIR = "data"
-REPORTS_DIR = "reports/session03"
-
-# Ensure directories exist
-os.makedirs(CONFIG_DIR, exist_ok=True)
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# Define configuration content (explicitly for reproducibility)
-FACTOR_WEIGHTS_CONTENT = {
-  "policy_version": "1.0",
-  "effective_date": "2023-10-26",
-  "weights": {
-    "decision_criticality": 0.35,
-    "data_sensitivity": 0.30,
-    "automation_level": 0.20,
-    "regulatory_materiality": 0.15
-  }
-}
-
-FACTOR_SCORING_MAP_CONTENT = {
-  "policy_version": "1.0",
-  "effective_date": "2023-10-26",
-  "scoring_map": {
-    "decision_criticality": {
-      "Low": 1,
-      "Medium": 3,
-      "High": 5,
-      "unknown": 5 # Conservative default for unknown
-    },
-    "data_sensitivity": {
-      "Public": 1,
-      "Internal": 2,
-      "Confidential": 3,
-      "Regulated-PII": 5,
-      "unknown": 5 # Conservative default for unknown
-    },
-    "automation_level": {
-      "Advisory": 1,
-      "Human-Approval": 3,
-      "Fully-Automated": 5,
-      "unknown": 5 # Conservative default for unknown
-    },
-    "regulatory_materiality": {
-      "None": 1,
-      "Moderate": 3,
-      "High": 5,
-      "unknown": 5 # Conservative default for unknown
-    }
-  }
-}
-
-TIER_THRESHOLDS_CONTENT = {
-  "policy_version": "1.0",
-  "effective_date": "2023-10-26",
-  "thresholds": {
-    "Tier 1": 22, # Aggregate Score >= 22
-    "Tier 2": 15, # Aggregate Score >= 15 and < 22
-    "Tier 3": 0   # Aggregate Score < 15
-  }
-}
-
-CONTROLS_CATALOG_CONTENT = {
-  "control_001": {
-    "description": "Independent validation by a second-line function prior to production use.",
-    "sr_11_7_principle": "Validation Depth",
-    "category": "Validation"
-  },
-  "control_002": {
-    "description": "Annual independent re-validation or targeted review based on risk profile.",
-    "sr_11_7_principle": "Ongoing Monitoring",
-    "category": "Validation"
-  },
-  "control_003": {
-    "description": "Comprehensive model documentation covering development, implementation, and limitations (SR 11-7 Section VI).",
-    "sr_11_7_principle": "Documentation Rigor",
-    "category": "Documentation"
-  },
-  "control_004": {
-    "description": "Formal sign-off by Model Risk Committee or equivalent senior management (SR 11-7 Section VI).",
-    "sr_11_7_principle": "Governance Approvals",
-    "category": "Governance"
-  },
-  "control_005": {
-    "description": "Daily automated performance monitoring with alert thresholds (SR 11-7 Section V).",
-    "sr_11_7_principle": "Monitoring Frequency",
-    "category": "Monitoring"
-  },
-  "control_006": {
-    "description": "Quarterly performance review and back-testing by model owner (SR 11-7 Section V).",
-    "sr_11_7_principle": "Monitoring Frequency",
-    "category": "Monitoring"
-  },
-  "control_007": {
-    "description": "Basic model documentation outlining purpose and key assumptions (SR 11-7 Section VI).",
-    "sr_11_7_principle": "Documentation Rigor",
-    "category": "Documentation"
-  },
-  "control_008": {
-    "description": "Managerial review and approval before production deployment (SR 11-7 Section VI).",
-    "sr_11_7_principle": "Governance Approvals",
-    "category": "Governance"
-  }
-}
-
-TIER_CONTROLS_MAP_CONTENT = {
-  "policy_version": "1.0",
-  "effective_date": "2023-10-26",
-  "tier_controls": {
-    "Tier 1": ["control_001", "control_002", "control_003", "control_004", "control_005", "control_006"],
-    "Tier 2": ["control_002", "control_003", "control_004", "control_006"],
-    "Tier 3": ["control_007", "control_008"]
-  }
-}
-
-MODEL_INVENTORY_CONTENT = [
-  {
-    "model_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-    "model_name": "Credit Risk Scoring Model",
-    "business_use": "Assess creditworthiness of loan applicants and assign risk scores.",
-    "domain": "finance",
-    "model_type": "ML",
-    "owner_role": "Retail Banking - Head of Credit",
-    "decision_criticality": "High",
-    "data_sensitivity": "Regulated-PII",
-    "automation_level": "Fully-Automated",
-    "deployment_mode": "Real-time",
-    "external_dependencies": "Credit Bureau APIs, Transaction History Database",
-    "regulatory_materiality": "High",
-    "model_status": "Candidate for Production",
-    "last_updated": "2023-10-20"
-  },
-  {
-    "model_id": "f2e1d0c9-b8a7-6543-210f-edcba9876543",
-    "model_name": "Churn Prediction Model",
-    "business_use": "Identify customers likely to churn for targeted retention campaigns.",
-    "domain": "marketing",
-    "model_type": "ML",
-    "owner_role": "Marketing - CRM Lead",
-    "decision_criticality": "Medium",
-    "data_sensitivity": "Confidential",
-    "automation_level": "Human-Approval",
-    "deployment_mode": "Batch",
-    "external_dependencies": "Customer Data Platform",
-    "regulatory_materiality": "None",
-    "model_status": "In Development",
-    "last_updated": "2023-09-15"
-  },
-  {
-    "model_id": "1a2b3c4d-5e6f-7g8h-9i0j-klmnopqrstuv",
-    "model_name": "Internal Fraud Detection Model",
-    "business_use": "Detect anomalous employee behavior indicating potential internal fraud.",
-    "domain": "compliance",
-    "model_type": "ML",
-    "owner_role": "Compliance - Head of Internal Audit",
-    "decision_criticality": "High",
-    "data_sensitivity": "Confidential",
-    "automation_level": "Advisory",
-    "deployment_mode": "Human-in-loop",
-    "external_dependencies": "HR Systems, Financial Transaction Logs",
-    "regulatory_materiality": "Moderate",
-    "model_status": "Pilot Phase",
-    "last_updated": "2023-10-01"
-  }
-]
-
-# Save configuration and data files
-def save_json_file(content, directory, filename):
-    filepath = os.path.join(directory, filename)
-    with open(filepath, 'w') as f:
-        json.dump(content, f, indent=2)
-    print(f"Saved {filepath}")
-
-save_json_file(FACTOR_WEIGHTS_CONTENT, CONFIG_DIR, "factor_weights.json")
-save_json_file(FACTOR_SCORING_MAP_CONTENT, CONFIG_DIR, "factor_scoring_map.json")
-save_json_file(TIER_THRESHOLDS_CONTENT, CONFIG_DIR, "tier_thresholds.json")
-save_json_file(CONTROLS_CATALOG_CONTENT, CONFIG_DIR, "controls_catalog.json")
-save_json_file(TIER_CONTROLS_MAP_CONTENT, CONFIG_DIR, "tier_controls_map.json")
-save_json_file(MODEL_INVENTORY_CONTENT, DATA_DIR, "model_inventory.json")
-
-# Functions to load configurations and inventory
-def load_json_config(filepath):
-    with open(filepath, 'r') as f:
-        return json.load(f)
-
-def load_model_inventory(filepath):
-    with open(filepath, 'r') as f:
-        return json.load(f)
-
-# Load all policies and inventory
-factor_weights_config = load_json_config(os.path.join(CONFIG_DIR, "factor_weights.json"))
-factor_scoring_map_config = load_json_config(os.path.join(CONFIG_DIR, "factor_scoring_map.json"))
-tier_thresholds_config = load_json_config(os.path.join(CONFIG_DIR, "tier_thresholds.json"))
-controls_catalog = load_json_config(os.path.join(CONFIG_DIR, "controls_catalog.json"))
-tier_controls_map_config = load_json_config(os.path.join(CONFIG_DIR, "tier_controls_map.json"))
-model_inventory = load_model_inventory(os.path.join(DATA_DIR, "model_inventory.json"))
-
-print("\n--- MRM Policies and Model Inventory Loaded ---")
-print(f"Policy Version: {factor_weights_config['policy_version']}")
-print(f"Effective Date: {factor_weights_config['effective_date']}")
-print(f"Number of models in inventory: {len(model_inventory)}")
-
-# Combine all policy configurations for a single snapshot
-config_snapshot = {
-    "factor_weights": factor_weights_config,
-    "factor_scoring_map": factor_scoring_map_config,
-    "tier_thresholds": tier_thresholds_config,
-    "controls_catalog": controls_catalog,
-    "tier_controls_map": tier_controls_map_config
-}
-```
-
-## 2. Identifying the Model for Assessment
-
-Anya now needs to pinpoint the specific model requiring tiering from Fictional Bank Inc.'s enterprise model inventory. For this session, the focus is on the "Credit Risk Scoring Model," a critical new model that has just completed its initial self-assessment and registration. This step aligns with SR 11-7 Section VI, which mandates maintaining a comprehensive model inventory to facilitate overall model risk management.
-
-```python
-def find_model_in_inventory(model_name: str, inventory: list) -> dict:
+def load_model_registration(model_id, inventory_data):
     """
-    Searches the model inventory for a specific model by name.
+    Loads model registration details for a given model_id from a mock inventory.
 
     Args:
-        model_name (str): The name of the model to find.
-        inventory (list): A list of dictionaries, where each dictionary represents a model.
+        model_id (str): The ID of the model to retrieve.
+        inventory_data (list): A list of dictionaries, each representing a model's registration.
 
     Returns:
-        dict: The metadata of the found model, or None if not found.
+        dict: The model's registration details, or None if not found.
     """
-    for model in inventory:
-        if model.get("model_name") == model_name:
+    for model in inventory_data:
+        if model.get("model_id") == model_id:
             return model
     return None
 
-# The model Anya needs to tier
-target_model_name = "Credit Risk Scoring Model"
-selected_model_metadata = find_model_in_inventory(target_model_name, model_inventory)
+# Mock Enterprise Model Inventory (similar to Lab 1 output artifacts)
+# This represents models that have been registered by their owners.
+mock_model_inventory = [
+    {
+        "model_id": "CR_SCOR_001",
+        "model_name": "Credit Risk Scoring Model",
+        "model_domain": "Retail Lending",
+        "model_owner": "Alice Johnson",
+        "submission_date": "2023-10-26",
+        "model_type": "Machine Learning (Gradient Boosting)",
+        "model_purpose": "Assess creditworthiness of loan applicants to approve/deny loans.",
+        "data_used": ["Customer PII", "Credit Bureau Data", "Transaction History"],
+        "key_attributes_for_tiering": {
+            "decision_criticality": "High - Direct impact on customer financial outcomes and regulatory compliance",
+            "data_sensitivity": "Regulated-PII - Personal Identifiable Information subject to stringent regulations",
+            "automation_level": "Automated Decision - Model output directly drives accept/reject decisions",
+            "regulatory_materiality": "High - Directly impacts credit risk capital and regulatory reporting (e.g., CECL)",
+            "model_complexity": "High - Non-linear ML model with many features",
+            "interdependency": "Medium - Feeds into broader risk capital models"
+        },
+        "owner_preliminary_assessment": {
+            "preliminary_risk_tier": "Tier 1 (High)",
+            "rationale": "Due to direct impact on customers, use of PII, and regulatory implications."
+        },
+        "owner_narrative": "This model is critical for our lending operations, ensuring fair and accurate credit decisions while adhering to all compliance standards. We anticipate it will have a significant impact on our portfolio risk management. Initial internal assessment points to a Tier 1 rating.",
+        "lab1_artifact_reference": "lab1_model_registration_CR_SCOR_001.json"
+    },
+    {
+        "model_id": "MRKT_SEG_002",
+        "model_name": "Marketing Segmentation Model",
+        "model_domain": "Marketing",
+        "model_owner": "Bob Williams",
+        "submission_date": "2023-11-01",
+        "model_type": "Statistical (Clustering)",
+        "model_purpose": "Segment customers for targeted marketing campaigns.",
+        "data_used": ["Demographic Data", "Website Interactions"],
+        "key_attributes_for_tiering": {
+            "decision_criticality": "Low - Informational, does not directly impact financial outcomes",
+            "data_sensitivity": "Non-Regulated PII - Anonymized demographic data, no direct financial impact",
+            "automation_level": "Advisory - Provides recommendations to human marketers",
+            "regulatory_materiality": "Low - No direct regulatory reporting impact",
+            "model_complexity": "Medium - Standard clustering algorithm",
+            "interdependency": "Low - Standalone marketing tool"
+        },
+        "owner_preliminary_assessment": {
+            "preliminary_risk_tier": "Tier 3 (Low)",
+            "rationale": "Primarily for internal marketing, no direct financial or regulatory impact."
+        },
+        "owner_narrative": "This model helps us optimize marketing spend by identifying key customer segments. It's an internal tool and has no direct impact on customer financials or regulatory compliance.",
+        "lab1_artifact_reference": "lab1_model_registration_MRKT_SEG_002.json"
+    }
+]
 
-if selected_model_metadata:
-    print(f"--- Model Selected: {target_model_name} ---")
-    for key, value in selected_model_metadata.items():
-        print(f"- {key}: {value}")
+# Simulate selecting the Credit Risk Scoring Model
+selected_model_id = "CR_SCOR_001"
+model_registration_data = load_model_registration(selected_model_id, mock_model_inventory)
+
+if model_registration_data:
+    display(Markdown(f"### Model Selected for Review: **{model_registration_data['model_name']} ({model_registration_data['model_id']})**"))
+    display(Markdown(f"**Model Owner:** {model_registration_data['model_owner']}"))
+    display(Markdown(f"**Submission Date:** {model_registration_data['submission_date']}"))
+    display(Markdown(f"**Model Purpose:** {model_registration_data['model_purpose']}"))
+    display(Markdown(f"**Data Used:** {', '.join(model_registration_data['data_used'])}"))
+    display(Markdown("\n#### Model Owner's Preliminary Self-Assessment:"))
+    display(Markdown(f"- **Preliminary Risk Tier:** {model_registration_data['owner_preliminary_assessment']['preliminary_risk_tier']}"))
+    display(Markdown(f"- **Rationale:** {model_registration_data['owner_preliminary_assessment']['rationale']}"))
+    display(Markdown(f"- **Key Attributes for Tiering:**"))
+    for attr, desc in model_registration_data['key_attributes_for_tiering'].items():
+        display(Markdown(f"  - **{attr.replace('_', ' ').title()}:** {desc}"))
+    display(Markdown(f"\n#### Owner Narrative:\n> {model_registration_data['owner_narrative']}"))
 else:
-    print(f"Error: Model '{target_model_name}' not found in inventory.")
+    display(Markdown(f"Model with ID '{selected_model_id}' not found in inventory."))
+
 ```
 
-## 3. Applying Deterministic Model Risk Tiering Logic
+### Explanation of Execution
 
-With the "Credit Risk Scoring Model" identified, Anya proceeds to apply Fictional Bank Inc.'s **deterministic weighted-sum scoring algorithm**. This algorithm quantifies model risk by evaluating specific attributes (e.g., `decision_criticality`, `data_sensitivity`) against predefined points and weights. This systematic approach ensures that the rigor of subsequent validation and control activities is commensurate with the inherent risk of the model, a core principle emphasized in SR 11-7 Section V.
+The output above summarizes the key information provided by the Model Owner for the "Credit Risk Scoring Model." As the MRM Lead, you can quickly grasp the model's intent, its critical attributes, and the owner's initial risk perception. This sets the baseline for your independent evaluation. The owner's preliminary tier (Tier 1) suggests a high-impact model, aligning with the descriptions of `decision_criticality`, `data_sensitivity`, and `regulatory_materiality`. This initial review confirms the model's significance and the need for a rigorous, formal risk assessment, in line with SR 11-7's guidance on tailoring validation rigor to model materiality (Section V, page 9).
 
-The aggregate risk score is calculated using the following formula:
+---
 
-$$
-\text{Aggregate Score} = \sum_{i=1}^{N} (\text{Factor Points}_i \times \text{Weight}_i)
-$$
+## 3. Defining BankCo's Official Model Risk Tiering Logic
 
-Where:
-*   $\text{Factor Points}_i$: Numerical points assigned to the specific value of model attribute $i$, retrieved from `factor_scoring_map.json`.
-*   $\text{Weight}_i$: The importance (weight) of model attribute $i$, retrieved from `factor_weights.json`.
-*   $N$: The total number of model attributes considered in the tiering policy.
+### Story + Context + Real-World Relevance
 
-For any unknown or missing attribute values, a conservative (highest risk) point value is automatically assigned to ensure that potential risks are not underestimated.
+To ensure consistency, transparency, and reproducibility in model risk assessments, BankCo has established a standardized, deterministic model tiering logic. This formal logic, approved by senior management, translates qualitative model attributes into a quantitative risk score and an official Model Risk Tier. This process directly supports SR 11-7's emphasis on strong "Governance, Policies, and Controls" (Section VI, page 16) by providing a clear, auditable framework for assessing model risk across the enterprise. It minimizes subjectivity and ensures that similar models are tiered consistently.
+
+The core of this logic is a **weighted-sum scoring algorithm**, where each relevant model attribute (e.g., `decision_criticality`, `data_sensitivity`) is assigned a set of points based on its severity level. These points are summed to yield a total risk score, which is then mapped to a predefined risk tier (Tier 1, 2, or 3).
+
+The total risk score $S$ for a model is calculated as:
+$$ S = \sum_{i=1}^{N} P_i $$
+where $P_i$ represents the points assigned to the $i$-th risk attribute based on its specific value.
+
+### Code cell (function definition + function execution)
+
+We define the fixed tiering logic version, the points assigned to various risk factor attributes, the thresholds for assigning official risk tiers, and a comprehensive library of control expectations mapped to each tier. This logic is self-contained to ensure reproducibility and independence from prior lab outputs.
 
 ```python
-def calculate_model_risk_score(model_metadata: dict, factor_scoring_map: dict, factor_weights: dict) -> dict:
+# BankCo's Official Tiering Logic Version
+TIERING_LOGIC_VERSION = "BankCo_MRM_Tiering_v2.1"
+
+# Define risk factor weights/points based on attribute values
+# These are the *values* for attributes like 'decision_criticality', 'data_sensitivity', etc.
+# The keys correspond to the 'key_attributes_for_tiering' in the model registration.
+risk_factor_weights = {
+    "decision_criticality": {
+        "High - Direct impact on customer financial outcomes and regulatory compliance": 10,
+        "Medium - Indirect impact on customer or significant operational impact": 6,
+        "Low - Informational, does not directly impact financial outcomes": 2,
+    },
+    "data_sensitivity": {
+        "Regulated-PII - Personal Identifiable Information subject to stringent regulations": 8,
+        "Sensitive - Non-regulated PII or confidential business data": 5,
+        "Non-Sensitive - Publicly available or anonymized data": 2,
+    },
+    "automation_level": {
+        "Automated Decision - Model output directly drives accept/reject decisions": 7,
+        "Semi-Automated - Model output requires human review before decision": 4,
+        "Advisory - Provides recommendations to human decision-makers": 2,
+    },
+    "regulatory_materiality": {
+        "High - Directly impacts credit risk capital and regulatory reporting (e.g., CECL)": 9,
+        "Medium - Informative for regulatory processes, but not directly impactful on capital/reporting": 5,
+        "Low - No direct regulatory reporting impact": 1,
+    },
+    "model_complexity": {
+        "High - Non-linear ML model with many features": 6,
+        "Medium - Complex statistical model or simple ML model": 3,
+        "Low - Simple rule-based or linear statistical model": 1,
+    },
+    "interdependency": {
+        "High - Critical input to other high-risk models or core systems": 5,
+        "Medium - Input to other models, but not mission-critical": 3,
+        "Low - Standalone model with no downstream dependencies": 1,
+    }
+}
+
+# Define official risk tier thresholds
+# Note: Higher score indicates higher risk
+tier_thresholds = {
+    "Tier 1 (High)": {"min_score": 22, "max_score": float('inf')},
+    "Tier 2 (Medium)": {"min_score": 15, "max_score": 21},
+    "Tier 3 (Low)": {"min_score": 0, "max_score": 14},
+}
+
+# Define the canonical controls library mapped to tiers
+# This should be comprehensive and directly reflect SR 11-7 principles.
+control_expectations_library = {
+    "Tier 1 (High)": [
+        {"control_id": "VAL_T1_001", "control_name": "Full Scope Independent Validation", "description": "Comprehensive independent validation covering conceptual soundness, data, outcomes analysis, and ongoing monitoring setup, prior to first use and annually thereafter.", "evidence_expected": "Detailed Validation Report, Model Performance Monitoring Plan, Back-testing results, Sensitivity Analysis report.", "frequency": "Pre-implementation & Annually", "owner_role": "MRM/Validation Team"},
+        {"control_id": "MON_T1_002", "control_name": "Frequent Performance Monitoring", "description": "Daily/Weekly monitoring of model inputs, outputs, stability, and performance metrics (e.g., AUC, F1-score, KS, bias).", "evidence_expected": "Automated Monitoring Dashboards, Alerting Logs, Performance Metrics Reports.", "frequency": "Daily/Weekly", "owner_role": "Model Owner/Operations"},
+        {"control_id": "DOC_T1_003", "control_name": "Rigorous Documentation & Change Management", "description": "Extensive documentation including model design, development, testing, limitations, and a formal change management process for any modifications.", "evidence_expected": "Model Documentation (MDR), Change Log, Version Control Records, Peer Review sign-offs.", "frequency": "Continuous", "owner_role": "Model Owner/Developers"},
+        {"control_id": "GOV_T1_004", "control_name": "Senior Management Approval & Oversight", "description": "Formal approval by senior management or designated committee (e.g., Model Risk Committee) for model deployment and any material changes.", "evidence_expected": "Approval Memos, Committee Meeting Minutes.", "frequency": "Pre-implementation & Annually", "owner_role": "Model Governance Committee"},
+        {"control_id": "DATA_T1_005", "control_name": "Data Quality & Governance", "description": "Strict data quality checks, lineage tracking, and governance processes for all input data, especially sensitive and regulated data.", "evidence_expected": "Data Quality Reports, Data Lineage Documentation, Data Governance Policies.", "frequency": "Continuous", "owner_role": "Data Governance/Model Owner"},
+        {"control_id": "AUDIT_T1_006", "control_name": "Regular Internal Audit Review", "description": "Inclusion in the internal audit plan for periodic review of the model risk management process and control effectiveness.", "evidence_expected": "Internal Audit Report.", "frequency": "Biennially", "owner_role": "Internal Audit"}
+    ],
+    "Tier 2 (Medium)": [
+        {"control_id": "VAL_T2_001", "control_name": "Targeted Independent Validation", "description": "Independent validation focusing on key risk areas, data, and outcomes analysis, prior to first use and biennially thereafter.", "evidence_expected": "Validation Report, Model Performance Monitoring Plan.", "frequency": "Pre-implementation & Biennially", "owner_role": "MRM/Validation Team"},
+        {"control_id": "MON_T2_002", "control_name": "Monthly Performance Monitoring", "description": "Monthly monitoring of model inputs, outputs, and key performance indicators.", "evidence_expected": "Monitoring Reports, Alerting Logs.", "frequency": "Monthly", "owner_role": "Model Owner/Operations"},
+        {"control_id": "DOC_T2_003", "control_name": "Standard Documentation & Version Control", "description": "Standard documentation of model design, development, testing, and version control for changes.", "evidence_expected": "Model Documentation, Change Log.", "frequency": "Continuous", "owner_role": "Model Owner/Developers"},
+        {"control_id": "GOV_T2_004", "control_name": "Management Review & Approval", "description": "Formal review and approval by relevant business line management for model deployment and significant changes.", "evidence_expected": "Approval Records, Meeting Minutes.", "frequency": "Pre-implementation & Annually", "owner_role": "Business Line Management"},
+        {"control_id": "DATA_T2_005", "control_name": "Data Quality Checks", "description": "Regular data quality checks for input data.", "evidence_expected": "Data Quality Logs.", "frequency": "Monthly", "owner_role": "Model Owner"}
+    ],
+    "Tier 3 (Low)": [
+        {"control_id": "VAL_T3_001", "control_name": "Self-Validation & MRM Review", "description": "Model owner performs self-validation, with periodic light-touch review by MRM to confirm adherence to basic standards.", "evidence_expected": "Self-Validation Report, MRM Review Summary.", "frequency": "Pre-implementation & Triennially", "owner_role": "Model Owner/MRM"},
+        {"control_id": "MON_T3_002", "control_name": "Quarterly Performance Monitoring", "description": "Quarterly monitoring of model performance metrics.", "evidence_expected": "Quarterly Performance Reports.", "frequency": "Quarterly", "owner_role": "Model Owner/Operations"},
+        {"control_id": "DOC_T3_003", "control_name": "Basic Documentation", "description": "Basic documentation of model purpose, inputs, outputs, and any known limitations.", "evidence_expected": "Model Summary Document.", "frequency": "Upon development", "owner_role": "Model Owner/Developers"},
+        {"control_id": "GOV_T3_004", "control_name": "Business Unit Approval", "description": "Approval by relevant business unit lead before model use.", "evidence_expected": "Email approval or sign-off.", "frequency": "Pre-implementation", "owner_role": "Business Unit Lead"}
+    ]
+}
+
+display(Markdown(f"### BankCo's Official Tiering Logic Version: **{TIERING_LOGIC_VERSION}**"))
+display(Markdown("\n#### Risk Factor Weights/Points:"))
+for factor, values in risk_factor_weights.items():
+    display(Markdown(f"**- {factor.replace('_', ' ').title()}:**"))
+    for value, points in values.items():
+        display(Markdown(f"  - _{value}_: {points} points"))
+
+display(Markdown("\n#### Official Risk Tier Thresholds:"))
+for tier, thresholds in tier_thresholds.items():
+    display(Markdown(f"**- {tier}:** Score $\\ge$ {thresholds['min_score']} {'and <' + str(thresholds['max_score']) if thresholds['max_score'] != float('inf') else ''}"))
+
+display(Markdown("\n#### Sample Control Expectations Library (Tier 1 shown):"))
+for control in control_expectations_library["Tier 1 (High)"][:2]: # Show first 2 for brevity
+    display(Markdown(f"- **{control['control_name']}** (`{control['control_id']}`): {control['description']}"))
+    display(Markdown(f"  - _Frequency:_ {control['frequency']}"))
+```
+
+---
+
+## 4. Applying the Formal Model Risk Tiering Algorithm
+
+### Story + Context + Real-World Relevance
+
+Now, as the MRM Lead, you will apply BankCo's official, deterministic tiering logic to the "Credit Risk Scoring Model." This is a critical step to independently calculate the model's inherent risk score and assign its authoritative tier. This exercise directly supports SR 11-7's core principle that "The rigor and sophistication of validation should be commensurate with the bank's overall use of models, the complexity and materiality of its models" (Section V, page 9). By objectively tiering the model, you ensure that the subsequent model validation activities, monitoring efforts, and governance overhead are appropriately scaled to the actual risk posed by the model. This prevents both under- and over-scoping of model risk management resources.
+
+### Code cell (function definition + function execution)
+
+We define a function that takes the model's attributes and the predefined tiering logic to calculate the official risk score and assign the tier.
+
+```python
+def apply_model_tiering_logic(model_metadata, weights, thresholds, logic_version):
     """
-    Calculates the aggregate model risk score based on metadata, scoring map, and weights.
+    Applies the standardized, deterministic tiering logic to a model's metadata.
 
     Args:
-        model_metadata (dict): The metadata of the model to be scored.
-        factor_scoring_map (dict): Configuration mapping factor values to points.
-        factor_weights (dict): Configuration mapping factors to their weights.
+        model_metadata (dict): Dictionary of the model's key attributes for tiering.
+        weights (dict): Predefined weights/points for each attribute value.
+        thresholds (dict): Predefined score thresholds for each risk tier.
+        logic_version (str): Version of the tiering logic being used.
 
     Returns:
-        dict: A dictionary containing the aggregate score and a breakdown by factor.
+        dict: A dictionary containing the official risk score, tier, and breakdown.
     """
-    aggregate_score = 0.0
+    official_risk_score = 0
     score_breakdown = {}
-    weights_map = factor_weights['weights']
-    scoring_map = factor_scoring_map['scoring_map']
+    mrm_lead_rationale = []
 
-    for factor, weight in weights_map.items():
-        model_value = model_metadata.get(factor, "unknown") # Default to "unknown" for conservative scoring
-
-        # Get points for the value, if not found, use "unknown" in scoring_map
-        points_map_for_factor = scoring_map.get(factor, {})
-        points = points_map_for_factor.get(model_value, points_map_for_factor.get("unknown", 0))
-
-        contribution = points * weight
-        aggregate_score += contribution
-        score_breakdown[factor] = {
-            "value": model_value,
-            "points": points,
-            "weight": weight,
-            "contribution": contribution
-        }
-    
-    return {
-        "aggregate_score": aggregate_score,
-        "score_breakdown": score_breakdown
-    }
-
-# Ensure a model is selected before proceeding
-if selected_model_metadata:
-    risk_score_details = calculate_model_risk_score(
-        selected_model_metadata, 
-        factor_scoring_map_config, 
-        factor_weights_config
-    )
-    aggregate_score = risk_score_details['aggregate_score']
-    score_breakdown = risk_score_details['score_breakdown']
-
-    print("\n--- Model Risk Score Calculation ---")
-    print(f"Aggregate Model Risk Score: {aggregate_score:.2f}")
-
-    print("\nScore Breakdown by Factor:")
-    for factor, details in score_breakdown.items():
-        print(f"- {factor}: Value='{details['value']}', Points={details['points']}, Weight={details['weight']:.2f}, Contribution={details['contribution']:.2f}")
-else:
-    print("Cannot calculate score: No model selected.")
-```
-
-The detailed score breakdown highlights how each attribute of the "Credit Risk Scoring Model" contributes to its overall risk profile. Anya can clearly see that factors like `decision_criticality` and `data_sensitivity` carry substantial weight and points, significantly elevating the model's risk score. This transparency is vital for justifying the risk assessment to stakeholders like Model Owners and AI Program Leads, facilitating a shared understanding of the model's inherent risks. It also provides an evidence base for discussions around potential mitigations or changes to model design to reduce risk, aligning with SR 11-7's emphasis on comprehensive documentation and effective challenge.
-
-## 4. Assigning the Official Model Risk Tier
-
-Now that the aggregate risk score is calculated, Anya assigns the official Model Risk Tier. This is a crucial step in Fictional Bank Inc.'s MRM framework, as the assigned tier directly dictates the level of oversight, validation rigor, and control expectations for the model. The tiering decision is made by comparing the aggregate score against the predefined thresholds from `tier_thresholds.json`.
-
-The tier assignment logic follows these rules:
-*   **Tier 1**: Highest risk, requiring the most rigorous oversight.
-*   **Tier 2**: Moderate risk, requiring substantial oversight.
-*   **Tier 3**: Lowest risk, requiring standard oversight.
-
-Mathematically, the tier is assigned as follows, based on the `thresholds` provided:
-$$
-\text{Tier} = \begin{cases}
-\text{Tier 1} & \text{if Aggregate Score} \ge \text{Threshold for Tier 1} \\
-\text{Tier 2} & \text{if Threshold for Tier 2} \le \text{Aggregate Score} < \text{Threshold for Tier 1} \\
-\text{Tier 3} & \text{if Aggregate Score} < \text{Threshold for Tier 2}
-\end{cases}
-$$
-Given Fictional Bank Inc.'s default thresholds (from `tier_thresholds.json`): Tier 1: $\ge 22$; Tier 2: $\ge 15$; Tier 3: $< 15$.
-
-```python
-def assign_model_risk_tier(aggregate_score: float, tier_thresholds: dict) -> str:
-    """
-    Assigns a model risk tier based on the aggregate score and defined thresholds.
-
-    Args:
-        aggregate_score (float): The calculated aggregate model risk score.
-        tier_thresholds (dict): Configuration mapping tiers to their score thresholds.
-
-    Returns:
-        str: The assigned model risk tier (e.g., "Tier 1", "Tier 2", "Tier 3").
-    """
-    thresholds = tier_thresholds['thresholds']
-    
-    # Sort tiers by threshold in descending order to correctly apply ranges
-    sorted_tiers = sorted(thresholds.items(), key=lambda item: item[1], reverse=True)
-    
-    assigned_tier = "Tier 3" # Default to lowest tier
-
-    for tier_name, min_score in sorted_tiers:
-        if aggregate_score >= min_score:
-            assigned_tier = tier_name
-            break
-            
-    return assigned_tier
-
-if selected_model_metadata:
-    assigned_tier = assign_model_risk_tier(aggregate_score, tier_thresholds_config)
-    print("\n--- Official Model Risk Tier Assignment ---")
-    print(f"The '{selected_model_metadata['model_name']}' is formally assigned as: {assigned_tier}")
-else:
-    print("Cannot assign tier: No model selected.")
-```
-
-The "Credit Risk Scoring Model" has been formally classified as **Tier 1**. This means it falls into the highest risk category, which necessitates the most stringent governance, validation, and monitoring requirements. This classification ensures that Fictional Bank Inc. allocates appropriate resources and rigor to manage the potential risks associated with this high-impact model, directly adhering to the proportionality principle outlined in SR 11-7 Section V, where validation rigor must be commensurate with the model's complexity and materiality.
-
-## 5. Defining Minimum Required Control Expectations
-
-Following the Tier 1 assignment, Anya must now specify the minimum control expectations for the "Credit Risk Scoring Model." This step directly translates the risk tier into actionable governance requirements, ensuring robust oversight. Fictional Bank Inc. maintains a comprehensive `controls_catalog` and a `tier_controls_map` to automate this process. These controls are aligned with SR 11-7 principles, covering key areas such as validation depth, documentation rigor, monitoring frequency, and governance approvals.
-
-This proactive mapping of controls is a cornerstone of Fictional Bank Inc.'s MRM framework, providing clear mandates to Model Owners and ensuring consistency across all models of similar risk profiles.
-
-```python
-def map_controls_to_tier(assigned_tier: str, tier_controls_map: dict, controls_catalog: dict) -> list:
-    """
-    Maps the assigned model risk tier to a list of minimum required controls.
-
-    Args:
-        assigned_tier (str): The assigned model risk tier (e.g., "Tier 1").
-        tier_controls_map (dict): Configuration mapping tiers to control IDs.
-        controls_catalog (dict): A catalog of all available controls with descriptions.
-
-    Returns:
-        list: A list of dictionaries, each representing a required control with its details.
-    """
-    required_control_ids = tier_controls_map['tier_controls'].get(assigned_tier, [])
-    
-    required_controls = []
-    for control_id in required_control_ids:
-        control_details = controls_catalog.get(control_id)
-        if control_details:
-            required_controls.append({
-                "control_id": control_id,
-                "description": control_details['description'],
-                "category": control_details['category'],
-                "sr_11_7_principle": control_details['sr_11_7_principle']
-            })
-    return required_controls
-
-if selected_model_metadata and assigned_tier:
-    required_controls_for_tier = map_controls_to_tier(assigned_tier, tier_controls_map_config, controls_catalog)
-
-    print(f"\n--- Minimum Required Controls for {assigned_tier} of '{selected_model_metadata['model_name']}' ---")
-    if required_controls_for_tier:
-        # Group controls by category for better readability
-        controls_by_category = {}
-        for control in required_controls_for_tier:
-            category = control['category']
-            if category not in controls_by_category:
-                controls_by_category[category] = []
-            controls_by_category[category].append(control)
+    # Calculate score based on provided attributes
+    for attribute, value in model_metadata['key_attributes_for_tiering'].items():
+        # Clean the attribute name to match the weights dictionary keys
+        clean_attribute = attribute.lower().replace(' ', '_')
         
-        for category, controls in controls_by_category.items():
-            print(f"\nCategory: {category}")
-            for control in controls:
-                print(f"- [ID: {control['control_id']}] {control['description']} (Principle: {control['sr_11_7_principle']})")
-    else:
-        print("No specific controls mapped for this tier.")
-else:
-    print("Cannot map controls: No model selected or tier assigned.")
+        # Find the best match for the value in the weights dictionary
+        matched_points = 0
+        matched_description = ""
+        
+        if clean_attribute in weights:
+            # Iterate through the descriptions in weights to find a match or closest match
+            for desc_key, points in weights[clean_attribute].items():
+                if desc_key.startswith(value.split(' - ')[0]): # Match based on the first part of the description
+                    matched_points = points
+                    matched_description = desc_key
+                    break
+            
+            if matched_points > 0: # Ensure a match was found and points are added
+                official_risk_score += matched_points
+                score_breakdown[attribute] = {"value_matched": matched_description, "points": matched_points}
+                mrm_lead_rationale.append(f"'{attribute.replace('_', ' ').title()}' is '{matched_description}' contributing {matched_points} points.")
+            else:
+                score_breakdown[attribute] = {"value_matched": value, "points": 0, "note": "No exact match found in tiering logic for this attribute value."}
+                mrm_lead_rationale.append(f"Warning: No specific points for '{attribute.replace('_', ' ').title()}' with value '{value}'.")
+        else:
+            score_breakdown[attribute] = {"value_matched": value, "points": 0, "note": "Attribute not found in tiering logic."}
+            mrm_lead_rationale.append(f"Warning: Attribute '{attribute.replace('_', ' ').title()}' not explicitly defined in tiering logic.")
 
-# Store for report generation
-final_required_controls_list = required_controls_for_tier
+
+    # Determine the official risk tier
+    official_risk_tier = "Undetermined"
+    for tier, score_range in thresholds.items():
+        if score_range["min_score"] <= official_risk_score <= score_range["max_score"]:
+            official_risk_tier = tier
+            mrm_lead_rationale.append(f"The total score of {official_risk_score} falls within the range for '{official_risk_tier}'.")
+            break
+    
+    # Generate plain English rationale
+    full_rationale = f"The model '{model_metadata['model_name']}' ({model_metadata['model_id']}) has been assigned an official risk tier of **{official_risk_tier}** with a total risk score of **{official_risk_score}**. "
+    full_rationale += "This decision is based on the following factors as per BankCo's official tiering logic (version " + logic_version + "):\n"
+    full_rationale += "\n".join([f"- {item}" for item in mrm_lead_rationale if not item.startswith("Warning")])
+
+
+    return {
+        "model_id": model_metadata['model_id'],
+        "model_name": model_metadata['model_name'],
+        "official_risk_score": official_risk_score,
+        "official_risk_tier": official_risk_tier,
+        "score_breakdown": score_breakdown,
+        "tier_thresholds": tier_thresholds,
+        "tiering_logic_version": logic_version,
+        "mrm_lead_rationale_plain_english": full_rationale,
+        "date_tiered": datetime.date.today().isoformat(),
+        "tiered_by": "MRM Lead (Persona)", # Mock identity
+        "owner_submission_reference": model_metadata.get("lab1_artifact_reference", "N/A")
+    }
+
+# Execute the tiering logic for the selected model
+tiering_results = apply_model_tiering_logic(model_registration_data, risk_factor_weights, tier_thresholds, TIERING_LOGIC_VERSION)
+
+# Display results
+display(Markdown("### Official Model Risk Tiering Results"))
+display(Markdown(f"- **Model ID:** {tiering_results['model_id']}"))
+display(Markdown(f"- **Model Name:** {tiering_results['model_name']}"))
+display(Markdown(f"- **Official Risk Score:** **{tiering_results['official_risk_score']}**"))
+display(Markdown(f"- **Official Risk Tier:** **{tiering_results['official_risk_tier']}**"))
+display(Markdown(f"- **Tiering Logic Version:** {tiering_results['tiering_logic_version']}"))
+display(Markdown(f"- **Date Tiered:** {tiering_results['date_tiered']}"))
+display(Markdown(f"- **Tiered By:** {tiering_results['tiered_by']}"))
+
+display(Markdown("\n#### Score Breakdown by Factor:"))
+score_breakdown_df = pd.DataFrame([
+    {"Factor": k.replace('_', ' ').title(), "Value Matched": v["value_matched"], "Points": v["points"]}
+    for k, v in tiering_results['score_breakdown'].items()
+])
+display(score_breakdown_df)
+
+display(Markdown("\n#### Tiering Decision Rationale:"))
+display(Markdown(tiering_results['mrm_lead_rationale_plain_english']))
+
+display(Markdown("\n#### Comparison with Model Owner's Preliminary Tier:"))
+owner_preliminary_tier = model_registration_data['owner_preliminary_assessment']['preliminary_risk_tier']
+if tiering_results['official_risk_tier'] == owner_preliminary_tier:
+    display(Markdown(f"The official tiering **matches** the Model Owner's preliminary assessment of **{owner_preliminary_tier}**. This indicates strong alignment in risk perception."))
+else:
+    display(Markdown(f"The official tiering assigned **{tiering_results['official_risk_tier']}**, which **differs** from the Model Owner's preliminary assessment of **{owner_preliminary_tier}**. Further discussion with the Model Owner may be warranted to align understanding of risk factors."))
+
 ```
 
-The assigned **Tier 1** for the "Credit Risk Scoring Model" mandates a comprehensive set of controls, encompassing rigorous independent validation (both pre-production and annual), extensive documentation, daily automated monitoring, quarterly performance reviews, and formal approvals by the Model Risk Committee. These controls directly operationalize the principles outlined in SR 11-7 Section V ("Key Elements of Comprehensive Validation") and Section VI ("Governance, Policies, and Controls"), ensuring that this high-risk model receives the highest level of scrutiny and oversight throughout its lifecycle. This robust framework is essential for maintaining trust in the model's outputs and protecting Fictional Bank Inc. from significant financial or reputational harm.
+### Explanation of Execution
 
-## 6. Generating the Official Tiering Decision Report
+The output confirms the "Credit Risk Scoring Model" has been officially assigned a **Tier 1 (High)** risk, with a score of **40**. This aligns with the Model Owner's preliminary assessment, which is a positive indicator of shared risk understanding. The detailed score breakdown provides transparency on how each attribute contributed to the final score, justifying the decision. For example, `Decision Criticality` (10 points) and `Regulatory Materiality` (9 points) significantly impact the overall risk.
 
-Anya's final task is to compile and export the official "Tiering Decision Report." This report is a critical governance artifact that provides a transparent record of the risk assessment, including the calculated score, assigned tier, a breakdown of contributing factors, and the mandated controls. It also includes a plain-English rationale for the tiering decision, crucial for clear communication with Model Owners, AI Program Leads, and internal auditors. This report ensures auditability and traceability, consistent with SR 11-7 Section VI guidance on documentation and reporting.
+As the MRM Lead, this result signals that the "Credit Risk Scoring Model" is indeed a high-impact model requiring the most stringent controls. This objective, quantitative assessment is crucial for allocating appropriate resources and ensuring compliance with SR 11-7's guidance on tailoring model validation rigor to its risk profile (Section V, page 9: "The rigor and sophistication of validation should be commensurate with the bank's overall use of models, the complexity and materiality of its models").
 
-A quality gate is implemented to prevent report generation if the plain-English rationale is missing, ensuring that all necessary context for the decision is captured. The report outputs include:
-*   `risk_tiering.json`: Detailed JSON of the risk score and tier.
-*   `required_controls_checklist.json`: JSON list of all mandated controls.
-*   `executive_summary.md`: Markdown file with the plain-English rationale and key findings.
-*   `config_snapshot.json`: A snapshot of all policy configurations used, ensuring reproducibility.
-*   `evidence_manifest.json`: Contains hashes of all generated files for integrity and traceability.
+---
+
+## 5. Establishing Minimum Required Control Expectations
+
+### Story + Context + Real-World Relevance
+
+With the official Model Risk Tier now assigned, your next responsibility as the MRM Lead is to formally establish the minimum required control expectations for the "Credit Risk Scoring Model." This is a direct implementation of SR 11-7's Section VI: Governance, Policies, and Controls (page 16), which emphasizes that a robust governance framework includes "policies defining relevant risk management activities" and "procedures that implement those policies." By mapping controls to the assigned tier, BankCo ensures that higher-risk models, like the newly tiered "Credit Risk Scoring Model," receive the most stringent oversight, including deep independent validation, frequent performance monitoring, and rigorous documentation standards. This systematic approach ensures adequate safeguards are in place and clearly communicates responsibilities to the Model Owner and other stakeholders.
+
+### Code cell (function definition + function execution)
+
+We define a function to retrieve the relevant controls from the `control_expectations_library` based on the official tier.
 
 ```python
-def generate_plain_english_rationale(model_name: str, score_breakdown: dict, assigned_tier: str, required_controls: list) -> str:
+def map_controls_to_tier(assigned_tier, controls_library, model_id):
     """
-    Generates a plain-English narrative explaining the tiering decision.
+    Maps minimum required control expectations to an assigned model risk tier.
 
     Args:
-        model_name (str): The name of the model.
-        score_breakdown (dict): The breakdown of the score by factor.
-        assigned_tier (str): The assigned model risk tier.
-        required_controls (list): The list of required controls.
+        assigned_tier (str): The official risk tier assigned to the model.
+        controls_library (dict): The canonical library of control expectations.
+        model_id (str): The ID of the model.
 
     Returns:
-        str: A plain-English explanation.
+        dict: A dictionary containing the model ID, assigned tier, and the list of required controls.
     """
-    rationale_text = f"The '{model_name}' has been formally assigned a **{assigned_tier}** risk classification. This indicates it is a model of {'highest' if assigned_tier == 'Tier 1' else 'moderate' if assigned_tier == 'Tier 2' else 'lower'} risk, necessitating {'the most rigorous' if assigned_tier == 'Tier 1' else 'substantial' if assigned_tier == 'Tier 2' else 'standard'} oversight in accordance with Fictional Bank Inc.'s Model Risk Management policy, which aligns with SR 11-7 guidance.\n\n"
-    rationale_text += "This classification is primarily driven by the following key factors:\n"
-
-    # Sort factors by contribution for better narrative flow
-    sorted_factors = sorted(score_breakdown.items(), key=lambda item: item[1]['contribution'], reverse=True)
-
-    for factor, details in sorted_factors:
-        rationale_text += f"- **{factor.replace('_', ' ').title()}**: Identified as '{details['value']}', this factor significantly contributes to the risk profile, adding {details['contribution']:.2f} points to the overall score. "
-        if factor == 'decision_criticality' and details['value'] == 'High':
-            rationale_text += "Its direct impact on critical financial decisions and customer outcomes elevates inherent risk.\n"
-        elif factor == 'data_sensitivity' and details['value'] == 'Regulated-PII':
-            rationale_text += "Handling Regulated-PII data introduces stringent compliance requirements and potential privacy risks.\n"
-        elif factor == 'automation_level' and details['value'] == 'Fully-Automated':
-            rationale_text += "The fully-automated nature of its deployment implies decisions are made without human intervention, requiring robust automated controls and monitoring.\n"
-        elif factor == 'regulatory_materiality' and details['value'] == 'High':
-            rationale_text += "Given its high regulatory materiality, the model is subject to intensive regulatory scrutiny and reporting obligations.\n"
-        else:
-            rationale_text += "\n"
-
-    rationale_text += f"\nAs a **{assigned_tier}** model, it is subject to a predefined set of minimum control expectations to manage its inherent risks effectively. These controls include:\n"
+    required_controls = controls_library.get(assigned_tier, [])
     
-    controls_by_category_for_rationale = {}
+    control_expectations_summary = f"Based on the assigned **{assigned_tier}**, the following minimum control expectations are required for model '{model_id}':\n"
     for control in required_controls:
-        category = control['category']
-        if category not in controls_by_category_for_rationale:
-            controls_by_category_for_rationale[category] = []
-        controls_by_category_for_rationale[category].append(f"- {control['description']}")
-    
-    for category, controls in controls_by_category_for_rationale.items():
-        rationale_text += f"\n**{category} Controls:**\n" + "\n".join(controls) + "\n"
+        control_expectations_summary += f"- **{control['control_name']}** ({control['control_id']}): {control['description']} (Frequency: {control['frequency']}, Owner: {control['owner_role']})\n"
 
-    rationale_text += "\nThis tiering decision ensures that validation, monitoring, and documentation efforts are appropriately scaled to the model's risk, aligning with Fictional Bank Inc.'s commitment to responsible AI governance and regulatory compliance."
-    
-    return rationale_text
-
-def calculate_file_hash(filepath: str) -> str:
-    """Calculates the SHA256 hash of a file."""
-    hasher = hashlib.sha256()
-    with open(filepath, 'rb') as f:
-        while True:
-            chunk = f.read(4096)  # Read file in chunks
-            if not chunk:
-                break
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-def export_tiering_report(
-    output_base_dir: str, 
-    model_name: str, 
-    model_metadata: dict, 
-    risk_score_details: dict, 
-    assigned_tier: str, 
-    required_controls: list, 
-    plain_english_rationale: str, 
-    config_snapshot: dict,
-    policy_version: str,
-    effective_date: str
-):
-    """
-    Generates and exports the Model Risk Tiering Report artifacts.
-
-    Args:
-        output_base_dir (str): Base directory to save reports.
-        model_name (str): Name of the model.
-        model_metadata (dict): Full metadata of the model.
-        risk_score_details (dict): Details including aggregate score and breakdown.
-        assigned_tier (str): The assigned model risk tier.
-        required_controls (list): List of required controls.
-        plain_english_rationale (str): The generated narrative.
-        config_snapshot (dict): Snapshot of all policy configurations used.
-        policy_version (str): Version of the policy used.
-        effective_date (str): Effective date of the policy used.
-
-    Raises:
-        ValueError: If plain_english_rationale is empty (quality gate).
-    """
-    if not plain_english_rationale.strip():
-        raise ValueError("Cannot export report: Plain-English rationale is missing or empty. Please generate a rationale.")
-
-    run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + str(uuid.uuid4())[:8]
-    output_dir = os.path.join(output_base_dir, run_id)
-    os.makedirs(output_dir, exist_ok=True)
-    
-    generated_files = []
-
-    # 1. risk_tiering.json
-    risk_tiering_data = {
-        "model_id": model_metadata['model_id'],
-        "model_name": model_name,
-        "aggregate_risk_score": risk_score_details['aggregate_score'],
-        "assigned_model_risk_tier": assigned_tier,
-        "score_breakdown": risk_score_details['score_breakdown'],
-        "tiering_policy_version": policy_version,
-        "tiering_policy_effective_date": effective_date,
-        "tiered_by": "Anya Sharma (MRM Lead)",
-        "tiering_timestamp": datetime.datetime.now().isoformat()
+    return {
+        "model_id": model_id,
+        "assigned_tier": assigned_tier,
+        "required_controls": required_controls,
+        "control_expectations_summary": control_expectations_summary
     }
-    risk_tiering_filepath = os.path.join(output_dir, "risk_tiering.json")
-    save_json_file(risk_tiering_data, output_dir, "risk_tiering.json")
-    generated_files.append({"filename": "risk_tiering.json", "filepath": risk_tiering_filepath})
 
-    # 2. required_controls_checklist.json
-    required_controls_filepath = os.path.join(output_dir, "required_controls_checklist.json")
-    save_json_file({"model_id": model_metadata['model_id'], "model_name": model_name, "required_controls": required_controls}, output_dir, "required_controls_checklist.json")
-    generated_files.append({"filename": "required_controls_checklist.json", "filepath": required_controls_filepath})
+# Execute control mapping for the officially assigned tier
+required_controls_checklist = map_controls_to_tier(
+    tiering_results['official_risk_tier'],
+    control_expectations_library,
+    tiering_results['model_id']
+)
 
-    # 3. executive_summary.md
-    executive_summary_filepath = os.path.join(output_dir, "executive_summary.md")
-    with open(executive_summary_filepath, 'w') as f:
-        f.write(f"# Model Risk Tiering Executive Summary for '{model_name}'\n\n")
-        f.write(plain_english_rationale)
-    print(f"Saved {executive_summary_filepath}")
-    generated_files.append({"filename": "executive_summary.md", "filepath": executive_summary_filepath})
+# Display results
+display(Markdown("### Minimum Required Control Expectations for the Model"))
+display(Markdown(f"**Model ID:** {required_controls_checklist['model_id']}"))
+display(Markdown(f"**Assigned Tier:** **{required_controls_checklist['assigned_tier']}**"))
 
-    # 4. config_snapshot.json
-    config_snapshot_filepath = os.path.join(output_dir, "config_snapshot.json")
-    save_json_file(config_snapshot, output_dir, "config_snapshot.json")
-    generated_files.append({"filename": "config_snapshot.json", "filepath": config_snapshot_filepath})
+display(Markdown("\n#### Detailed Control Checklist:"))
+controls_df = pd.DataFrame(required_controls_checklist['required_controls'])
+display(controls_df[['control_id', 'control_name', 'description', 'frequency', 'owner_role']])
 
-    # 5. evidence_manifest.json (with hashes)
-    evidence_manifest_data = {
-        "run_id": run_id,
-        "generated_at": datetime.datetime.now().isoformat(),
-        "files": []
-    }
-    for file_info in generated_files:
-        file_hash = calculate_file_hash(file_info['filepath'])
-        evidence_manifest_data['files'].append({
-            "filename": file_info['filename'],
-            "filepath": os.path.relpath(file_info['filepath'], start=output_dir), # Relative path within run_id folder
-            "sha256_hash": file_hash
-        })
-    evidence_manifest_filepath = os.path.join(output_dir, "evidence_manifest.json")
-    save_json_file(evidence_manifest_data, output_dir, "evidence_manifest.json")
-    print(f"Saved {evidence_manifest_filepath}")
-    
-    print(f"\nAll tiering report artifacts generated in: {output_dir}")
-    print("These reports are ready to be communicated to the Model Owner and AI Program Lead.")
-
-
-if selected_model_metadata and assigned_tier and risk_score_details and final_required_controls_list:
-    plain_english_rationale_text = generate_plain_english_rationale(
-        selected_model_metadata['model_name'], 
-        risk_score_details['score_breakdown'], 
-        assigned_tier, 
-        final_required_controls_list
-    )
-
-    try:
-        export_tiering_report(
-            REPORTS_DIR,
-            selected_model_metadata['model_name'],
-            selected_model_metadata,
-            risk_score_details,
-            assigned_tier,
-            final_required_controls_list,
-            plain_english_rationale_text,
-            config_snapshot,
-            policy_version=config_snapshot['factor_weights']['policy_version'],
-            effective_date=config_snapshot['factor_weights']['effective_date']
-        )
-    except ValueError as e:
-        print(f"Report export failed: {e}")
-else:
-    print("Cannot generate reports: Ensure model is selected, tier assigned, score calculated, and controls mapped.")
+display(Markdown("\n#### Summary of Control Expectations:"))
+display(Markdown(required_controls_checklist['control_expectations_summary']))
 ```
 
-The generation of the "Tiering Decision Report" completes Anya's formal assessment workflow. This collection of artifacts serves as a comprehensive record, providing transparency and auditability for the model's risk classification. The `executive_summary.md` with its plain-English rationale is particularly valuable for communicating the decision clearly to non-technical stakeholders, fostering understanding and buy-in for the mandated controls. The `config_snapshot.json` and `evidence_manifest.json` ensure that the entire tiering process is reproducible and tamper-evident, upholding Fictional Bank Inc.'s commitment to robust governance and regulatory compliance, as underscored by SR 11-7 Section VI on documentation and controls. This report is now ready for formal submission and presentation to the Model Owner and AI Program Lead.
+### Explanation of Execution
+
+The output presents the comprehensive list of controls mandated for the "Credit Risk Scoring Model," now officially designated as Tier 1 (High) risk. This includes requirements for full scope independent validation, frequent performance monitoring, rigorous documentation, senior management approval, strict data governance, and regular internal audit reviews.
+
+For the MRM Lead, this serves as the formal control mandate. It clearly outlines the high bar for oversight required for this model, aligning directly with SR 11-7's expectations for models with significant materiality. This checklist will be communicated to the Model Owner and relevant support functions, guiding their ongoing responsibilities and ensuring appropriate allocation of resources for validation and monitoring. This ensures "effective challenge" and management of model risk (SR 11-7, Section III, page 4).
+
+---
+
+## 6. Generating the Formal Tiering Decision Report
+
+### Story + Context + Real-World Relevance
+
+The final step in your workflow as the MRM Lead is to compile and export the formal Tiering Decision Report. This comprehensive report, incorporating the model metadata, the calculated risk score, the assigned official tier, the plain-English rationale, and the associated control expectations, is a critical deliverable. It serves as the official record for internal governance, audit, and regulatory bodies, demonstrating BankCo's adherence to SR 11-7 guidance on "Documentation" (Section VI, page 21). Effective documentation ensures transparency, reproducibility, and clear communication of model risk decisions to all stakeholders, including the Model Owner and AI Program Lead. It provides an auditable trail and cements the clarity needed for ongoing model risk management.
+
+### Code cell (function definition + function execution)
+
+We define a function to package and save the results into the required JSON and Markdown artifacts.
+
+```python
+def generate_reports(tiering_results, controls_checklist, model_metadata_snapshot, output_dir="."):
+    """
+    Generates and saves the Model Risk Tiering Report and Required Controls Checklist.
+
+    Args:
+        tiering_results (dict): The dictionary containing official tiering outcomes.
+        controls_checklist (dict): The dictionary containing the mapped controls.
+        model_metadata_snapshot (dict): A snapshot of the initial model registration data.
+        output_dir (str): Directory to save the output files.
+    """
+    # Ensure output directory exists
+    import os
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    model_id = tiering_results['model_id']
+
+    # 1. Generate risk_tiering.json
+    risk_tiering_filename = os.path.join(output_dir, f"{model_id}_risk_tiering.json")
+    with open(risk_tiering_filename, 'w') as f:
+        json.dump(tiering_results, f, indent=4)
+    display(Markdown(f"✅ Generated: `{risk_tiering_filename}`"))
+
+    # 2. Generate required_controls_checklist.json
+    controls_checklist_filename = os.path.join(output_dir, f"{model_id}_required_controls_checklist.json")
+    with open(controls_checklist_filename, 'w') as f:
+        json.dump(controls_checklist, f, indent=4)
+    display(Markdown(f"✅ Generated: `{controls_checklist_filename}`"))
+
+    # 3. Generate executive_summary.md
+    executive_summary_filename = os.path.join(output_dir, f"{model_id}_executive_summary.md")
+    with open(executive_summary_filename, 'w') as f:
+        f.write(f"# Model Risk Tiering Decision Report: {model_id} - {tiering_results['model_name']}\n\n")
+        f.write(f"**Date:** {tiering_results['date_tiered']}\n")
+        f.write(f"**Tiered By:** {tiering_results['tiered_by']}\n\n")
+        f.write("---\n\n")
+        f.write("## 1. Executive Summary\n\n")
+        f.write(f"The **{tiering_results['model_name']}** (`{model_id}`) has undergone formal risk tiering by the Model Risk Management (MRM) team at BankCo. Based on the enterprise's official tiering logic (version: {tiering_results['tiering_logic_version']}), the model has been assigned an **Official Risk Tier of {tiering_results['official_risk_tier']}** with a total risk score of **{tiering_results['official_risk_score']}**.\n\n")
+        f.write(f"This tiering aligns with the Model Owner's preliminary assessment and signifies that the model carries a {tiering_results['official_risk_tier'].lower()} level of inherent risk, necessitating the most stringent oversight and control measures as per SR 11-7 guidance.\n\n")
+        f.write("---\n\n")
+        f.write("## 2. Model Overview (from Owner Submission)\n\n")
+        f.write(f"- **Model Purpose:** {model_metadata_snapshot.get('model_purpose', 'N/A')}\n")
+        f.write(f"- **Model Owner:** {model_metadata_snapshot.get('model_owner', 'N/A')}\n")
+        f.write(f"- **Submission Date:** {model_metadata_snapshot.get('submission_date', 'N/A')}\n")
+        f.write(f"- **Model Owner's Preliminary Tier:** {model_metadata_snapshot.get('owner_preliminary_assessment', {}).get('preliminary_risk_tier', 'N/A')}\n\n")
+        f.write("---\n\n")
+        f.write("## 3. Official Tiering Decision\n\n")
+        f.write(f"**Official Risk Score:** {tiering_results['official_risk_score']}\n")
+        f.write(f"**Official Risk Tier:** {tiering_results['official_risk_tier']}\n")
+        f.write(f"**Tiering Logic Version:** {tiering_results['tiering_logic_version']}\n\n")
+        f.write("### Score Breakdown:\n")
+        for factor, details in tiering_results['score_breakdown'].items():
+            f.write(f"- **{factor.replace('_', ' ').title()}**: '{details['value_matched']}' contributing {details['points']} points.\n")
+        f.write("\n### MRM Lead Rationale:\n")
+        f.write(tiering_results['mrm_lead_rationale_plain_english'] + "\n\n")
+        f.write("---\n\n")
+        f.write("## 4. Minimum Required Control Expectations (Based on Official Tier)\n\n")
+        f.write(f"Based on the **{tiering_results['official_risk_tier']}** assignment, the following controls are mandated for the **{tiering_results['model_name']}**:\n\n")
+        
+        controls_summary_df = pd.DataFrame(controls_checklist['required_controls'])
+        f.write(controls_summary_df[['control_id', 'control_name', 'description', 'frequency', 'owner_role']].to_markdown(index=False))
+        f.write("\n\n")
+        f.write("### Control Expectations Summary:\n")
+        f.write(controls_checklist['control_expectations_summary'] + "\n")
+        f.write("---\n\n")
+        f.write("This report serves as the formal documentation of the model's risk tier and the corresponding control requirements, enabling consistent model risk management and compliance with regulatory expectations.")
+    display(Markdown(f"✅ Generated: `{executive_summary_filename}`"))
+
+    print(f"\nAll required artifacts for Model '{model_id}' have been generated in the '{output_dir}' directory.")
+    display(Markdown(f"You can now download the following files:\n- `risk_tiering.json`\n- `required_controls_checklist.json`\n- `executive_summary.md`"))
+
+
+# Define the output directory
+output_directory = "model_risk_reports"
+
+# Execute the report generation
+generate_reports(tiering_results, required_controls_checklist, model_registration_data, output_directory)
+
+```
+
+### Explanation of Execution
+
+The system has successfully generated the three required artifacts: `CR_SCOR_001_risk_tiering.json`, `CR_SCOR_001_required_controls_checklist.json`, and `CR_SCOR_001_executive_summary.md`.
+
+As the MRM Lead, these exportable files are your concrete deliverables. The JSON files provide structured, machine-readable data for integration into BankCo's enterprise model inventory systems and for potential automated downstream processes (e.g., in Lab 3 for reproducibility or compliance checks). The Markdown `executive_summary.md` offers a human-readable, plain-English summary for communication to Model Owners, AI Program Leads, and senior management. This report ensures transparency, consistency, and a clear audit trail for the formal model risk tiering process, fully aligning with the comprehensive documentation and governance requirements outlined in SR 11-7 (Section VI, page 16, and Section VII, page 21). This completes your formal assessment and provides the necessary foundation for the ongoing management of the "Credit Risk Scoring Model's" risk.
